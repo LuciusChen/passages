@@ -909,9 +909,14 @@ Content between marker and ⟦...⟧ is the excerpt body."
         (let* ((marker-start (match-beginning 1))
                (marker-end (match-end 1))
                (page (string-to-number (match-string 2)))
-               (body-start (point)))
-          ;; Find the closing ⟦file|location⟧
-          (when (re-search-forward " ?⟦\\([^|]+\\)|\\([^⟧]+\\)⟧" end t)
+               (body-start (point))
+               ;; Limit search: don't cross into next excerpt
+               (search-limit (save-excursion
+                               (if (re-search-forward "^[ \t]*● P[0-9]+ " end t)
+                                   (line-beginning-position)
+                                 end))))
+          ;; Find the closing ⟦file|location⟧ within limit
+          (when (re-search-forward " ?⟦\\([^|]+\\)|\\([^⟧]+\\)⟧" search-limit t)
             (let* ((file (match-string 1))
                    (location-str (match-string 2))
                    (meta-start (match-beginning 0))
@@ -946,9 +951,14 @@ Supports multi-line excerpts."
       (goto-char (point-min))
       ;; Find ● Pxx marker, then locate its ⟦file|...⟧
       (while (re-search-forward (format "^[ \t]*● P%d " page) nil t)
-        (let ((marker-pos (line-beginning-position)))
-          ;; Find the closing ⟦file|location⟧
-          (when (re-search-forward "⟦\\([^|]+\\)|[^⟧]+⟧" nil t)
+        (let* ((marker-pos (line-beginning-position))
+               ;; Don't search past next excerpt marker
+               (search-limit (save-excursion
+                               (if (re-search-forward "^[ \t]*● P[0-9]+ " nil t)
+                                   (line-beginning-position)
+                                 (point-max)))))
+          ;; Find the closing ⟦file|location⟧ within limit
+          (when (re-search-forward "⟦\\([^|]+\\)|[^⟧]+⟧" search-limit t)
             (let ((excerpt-file (match-string 1)))
               (when (or (null file)
                         (null excerpt-file)
@@ -1526,9 +1536,15 @@ Format: ● Pxx [content - may span lines] ⟦file|location⟧"
       (goto-char marker-pos)
       ;; Match the marker and get page number
       (when (looking-at "^[ \t]*● P\\([0-9]+\\) ")
-        (let ((page (string-to-number (match-string 1))))
-          ;; Search forward for ⟦file|location⟧
-          (when (re-search-forward "⟦\\([^|]+\\)|\\([^⟧]+\\)⟧" nil t)
+        (let* ((page (string-to-number (match-string 1)))
+               ;; Don't search past next excerpt marker
+               (search-limit (save-excursion
+                               (forward-line 1)
+                               (if (re-search-forward "^[ \t]*● P[0-9]+ " nil t)
+                                   (line-beginning-position)
+                                 (point-max)))))
+          ;; Search forward for ⟦file|location⟧ within limit
+          (when (re-search-forward "⟦\\([^|]+\\)|\\([^⟧]+\\)⟧" search-limit t)
             (let* ((file (match-string 1))
                    (location-str (match-string 2))
                    (type (if (and file (string-match-p "\\.epub$" file)) 'epub 'pdf)))
@@ -1587,8 +1603,13 @@ Content may span multiple lines, from ● Pxx to ⟦file|location⟧."
       (goto-char marker-pos)
       (when (looking-at "^[ \t]*● P[0-9]+ ")
         (goto-char (match-end 0))
-        (let ((body-start (point)))
-          (when (re-search-forward " ?⟦[^⟧]+⟧" nil t)
+        (let* ((body-start (point))
+               ;; Don't search past next excerpt marker
+               (search-limit (save-excursion
+                               (if (re-search-forward "^[ \t]*● P[0-9]+ " nil t)
+                                   (line-beginning-position)
+                                 (point-max)))))
+          (when (re-search-forward " ?⟦[^⟧]+⟧" search-limit t)
             (let* ((body-end (match-beginning 0))
                    (body-text (string-trim
                                (buffer-substring-no-properties body-start body-end))))
@@ -2058,7 +2079,7 @@ This mode provides reliable keybindings that won't be overridden by
 major mode maps or other minor modes.
 
 \\{passages-doc-mode-map}"
-  :lighter " Exc-Doc"
+  :lighter " §-Doc"
   :keymap passages-doc-mode-map
   (if passages-doc-mode
       (message "Passages-doc-mode enabled: e=insert, i=notes, I=find-location")
