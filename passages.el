@@ -63,8 +63,8 @@
   :type 'boolean
   :group 'passages)
 
-(defcustom passages-denote-keyword "excerpt"
-  "Denote keyword (file tag) for excerpt notes."
+(defcustom passages-denote-keyword "passage"
+  "Denote keyword (file tag) for passage notes."
   :type 'string
   :group 'passages)
 
