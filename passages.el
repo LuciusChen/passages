@@ -1097,8 +1097,36 @@ Content between marker and ⟦...⟧ is styled gray, metadata is hidden."
 
 ;;; Note file management
 
+(defun passages--find-existing-note-file-path (source-file)
+  "Find existing note file path for SOURCE-FILE without creating.
+Returns nil if no existing note file is found."
+  (let ((normalized-source (passages--normalize-path source-file)))
+    (or
+     (passages--find-citar-note normalized-source)
+     (passages--find-denote-note normalized-source)
+     ;; Check if note file exists in passages-directory
+     (when passages-directory
+       (let ((candidate (expand-file-name
+                         (concat (file-name-base normalized-source) ".notes.org")
+                         passages-directory)))
+         (when (file-exists-p candidate)
+           (passages--normalize-path candidate))))
+     ;; Check if note file exists next to source
+     (let ((candidate (concat normalized-source ".notes.org")))
+       (when (file-exists-p candidate)
+         (passages--normalize-path candidate))))))
+
+(defun passages--find-existing-note-buffer (source-file)
+  "Find existing note buffer for SOURCE-FILE without creating.
+Returns the buffer if found and visible, nil otherwise."
+  (when-let* ((note-file (passages--find-existing-note-file-path source-file))
+              (buf (find-buffer-visiting note-file))
+              (win (get-buffer-window buf)))
+    buf))
+
 (defun passages--get-note-file-path (source-file)
-  "Determine the path for note file of SOURCE-FILE."
+  "Determine the path for note file of SOURCE-FILE.
+Creates a new note file if none exists."
   (let ((normalized-source (passages--normalize-path source-file)))
     (or
      (passages--find-citar-note normalized-source)
@@ -1325,7 +1353,10 @@ The ⟦...⟧ metadata is hidden by overlay but persists in the file."
          (formatted-location (passages--format-location location))
          (source-window (selected-window))
          (source-buffer (current-buffer))
-         (note-buffer (passages--get-note-buffer file))
+         ;; First check for existing visible note buffer (without creating)
+         (existing-note-buf (passages--find-existing-note-buffer file))
+         (note-buffer (or existing-note-buf
+                          (passages--get-note-buffer file)))
          note-position)
 
     ;; Restore source buffer to source window in case it was changed
@@ -1386,12 +1417,14 @@ The ⟦...⟧ metadata is hidden by overlay but persists in the file."
                  (passages--get-selected-text)))
          (loc-info (passages--get-current-location))
          (file (plist-get loc-info :file))
-         (note-buffer (passages--get-note-buffer file)))
+         ;; For duplicate check, only use existing buffer (don't create file)
+         (existing-note-buf (passages--find-existing-note-buffer file)))
 
     (cond
      (has-selection
-      ;; Check for duplicate
-      (let ((duplicate (passages--find-duplicate text note-buffer)))
+      ;; Check for duplicate only if note buffer already exists
+      (let ((duplicate (when existing-note-buf
+                         (passages--find-duplicate text existing-note-buf))))
         (if duplicate
             (if (y-or-n-p
                  (format "Similar passage exists at p.%d: \"%.40s...\" Insert anyway? "
@@ -1438,7 +1471,10 @@ PAGE is the page number used in the label."
          (file (plist-get loc-info :file))
          (location (plist-get loc-info :location))
          (page (passages--get-location-page location))
-         (note-buffer (passages--get-note-buffer file)))
+         ;; First check for existing visible note buffer (without creating)
+         (existing-note-buf (passages--find-existing-note-buffer file))
+         (note-buffer (or existing-note-buf
+                          (passages--get-note-buffer file))))
 
     ;; Switch to note buffer - reuse existing window if available
     (if-let* ((existing-window (get-buffer-window note-buffer)))
@@ -1485,7 +1521,10 @@ PAGE is the page number used in the label."
   (let* ((text (passages--get-selected-text))
          (loc-info (passages--get-current-location))
          (file (plist-get loc-info :file))
-         (note-buffer (passages--get-note-buffer file))
+         ;; First check for existing visible note buffer (without creating)
+         (existing-note-buf (passages--find-existing-note-buffer file))
+         (note-buffer (or existing-note-buf
+                          (passages--get-note-buffer file)))
          (search-text (substring text 0 (min 40 (length text)))))
 
     ;; Switch to note buffer - reuse existing window if available
@@ -2022,7 +2061,10 @@ An excerpt unit is: ● Pxx [content] + [user notes below]."
   (let* ((file (if (eq major-mode 'pdf-view-mode)
                   (buffer-file-name)
                 (or nov-file-name (buffer-file-name))))
-         (note-buffer (passages--get-note-buffer file)))
+         ;; First check for existing visible note buffer (without creating)
+         (existing-note-buf (passages--find-existing-note-buffer file))
+         (note-buffer (or existing-note-buf
+                          (passages--get-note-buffer file))))
     ;; Switch to note buffer - reuse existing window if available
     (if-let* ((existing-window (get-buffer-window note-buffer)))
         (select-window existing-window)
